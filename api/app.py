@@ -10,7 +10,7 @@ import streamlit as st
 import tensorflow as tf
 from PIL import Image
 
-# ── Config — MUST match what the model was trained on ───────────────────────
+# ── Config — 
 IMAGE_HEIGHT = 128
 IMAGE_WIDTH = 128
 CLASS_NAMES = ["Fresh", "Rotten"]  # index 0 / index 1 — matches training class_names
