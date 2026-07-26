@@ -1,3 +1,5 @@
+GET324 Mini Project
+
 # 🍎 Fresh vs Rotten Apple Classifier
 
 A Convolutional Neural Network (CNN) built with TensorFlow/Keras that classifies apple images as **Fresh** or **Rotten**, with a Streamlit web app for interactive inference.
@@ -74,7 +76,7 @@ Then open the local URL Streamlit prints (typically `http://localhost:8501`), up
 
 ## License
 
-    ` MIT License
+     MIT License
 
     Copyright (c) 2026 [GET324 - FE5]
 
@@ -94,4 +96,4 @@ Then open the local URL Streamlit prints (typically `http://localhost:8501`), up
     AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE. ``
+    SOFTWARE. 
