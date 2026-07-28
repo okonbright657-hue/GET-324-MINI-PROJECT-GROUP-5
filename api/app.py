@@ -22,6 +22,12 @@ IMAGE_WIDTH = 224
 # trusting it — a flipped list here silently swaps every prediction.
 CLASS_NAMES = ["Actinic Keratosis", "Seborrheic Keratosis"]
 MODEL_PATH = "models/efficientnet_transfer_best.keras"
+CENTROIDS_PATH = "models/class_centroids.npy"
+# Cosine distance beyond which an image is rejected as "not a lesion this
+# model recognizes." This value is a placeholder — tune it against your own
+# held-out sample of known-good lesion images and known-garbage images
+# (see notebook OOD cell) before trusting it. Don't ship a guessed number.
+OOD_THRESHOLD = 0.35
 
 # ── Page setup ────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -119,6 +125,16 @@ st.markdown(
         margin-top: 0.3rem;
     }
 
+    .ood-card {
+        border-radius: 16px;
+        padding: 1.4rem;
+        text-align: center;
+        margin-top: 1rem;
+        background: #f2f2f2;
+        border: 2px dashed #999;
+        color: #444;
+    }
+
     footer {visibility: hidden;}
     #MainMenu {visibility: hidden;}
     </style>
@@ -126,10 +142,27 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Model loading (cached so it only loads once per session) ────────────────
+# ── Model + centroid loading (cached so it only loads once per session) ────
 @st.cache_resource(show_spinner="Loading model...")
 def load_model():
     return tf.keras.models.load_model(MODEL_PATH)
+
+
+@st.cache_resource(show_spinner="Loading reference embeddings...")
+def load_centroids():
+    return np.load(CENTROIDS_PATH, allow_pickle=True).item()
+
+
+@st.cache_resource(show_spinner=False)
+def load_embedding_model(_model):
+    # Look up the pooling layer by type, not by name — the auto-generated
+    # Keras layer name (e.g. "global_average_pooling2d_2") depends on how
+    # many times the model was rebuilt in the training session and will
+    # not match a hardcoded string reliably. Match by type instead.
+    gap_layer = next(
+        l for l in _model.layers if isinstance(l, tf.keras.layers.GlobalAveragePooling2D)
+    )
+    return tf.keras.Model(_model.input, gap_layer.output)
 
 
 def preprocess_image(pil_image: Image.Image) -> np.ndarray:
@@ -144,13 +177,20 @@ def preprocess_image(pil_image: Image.Image) -> np.ndarray:
     return arr
 
 
-def predict(model, pil_image: Image.Image):
-    arr = preprocess_image(pil_image)
+def predict(model, arr: np.ndarray):
     prob_seborrheic = float(model.predict(arr, verbose=0)[0][0])  # sigmoid output, class index 1
     pred_idx = int(prob_seborrheic >= 0.5)
     label = CLASS_NAMES[pred_idx]
     confidence = prob_seborrheic if pred_idx == 1 else 1 - prob_seborrheic
     return label, confidence, prob_seborrheic
+
+
+def get_embedding(embedding_model, arr: np.ndarray) -> np.ndarray:
+    return embedding_model.predict(arr, verbose=0)[0]
+
+
+def cosine_distance(a: np.ndarray, b: np.ndarray) -> float:
+    return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────
@@ -166,6 +206,7 @@ with st.sidebar:
     st.write(f"- Input size: {IMAGE_WIDTH}x{IMAGE_HEIGHT}")
     st.write("- Architecture: EfficientNetB0 (frozen) + dense head")
     st.write("- Output: sigmoid (binary)")
+    st.write("- Out-of-distribution check: cosine distance to class centroids")
     st.markdown("---")
     st.markdown("### Class reference")
     st.write("- **Actinic Keratosis**: precancerous lesion, warrants clinical follow-up")
@@ -189,9 +230,10 @@ st.markdown(
     <strong>Not a diagnostic tool.</strong> This model was trained on a small
     academic dataset for a course project and has not been clinically
     validated. It distinguishes only two lesion types and will produce a
-    confident-looking answer even for images of something else entirely.
-    Do not use this to make, delay, or avoid a medical decision. If you have
-    a concern about a skin lesion, see a dermatologist.
+    confident-looking answer even for images of something else entirely —
+    an out-of-distribution check below tries to catch that, but is not
+    guaranteed. Do not use this to make, delay, or avoid a medical decision.
+    If you have a concern about a skin lesion, see a dermatologist.
     </div>
     """,
     unsafe_allow_html=True,
@@ -217,31 +259,56 @@ if uploaded_file is not None:
 
     try:
         model = load_model()
+        centroids = load_centroids()
     except Exception as e:
         st.error(
-            f"Couldn't load the model from `{MODEL_PATH}`. "
-            f"Make sure the file exists in your deployment and matches this path.\n\n"
+            f"Couldn't load the model or centroid file. Make sure both "
+            f"`{MODEL_PATH}` and `{CENTROIDS_PATH}` exist in your deployment.\n\n"
             f"Details: {e}"
         )
         st.stop()
 
-    with st.spinner("Analysing image..."):
-        label, confidence, prob_seborrheic = predict(model, image)
+    embedding_model = load_embedding_model(model)
 
-    arr = preprocess_image(image)
-    embedding = get_embedding(model, arr)
-    centroids = load_centroids()
-    min_dist = min(cosine_distance(embedding, c) for c in centroids.values())
+    with st.spinner("Analysing image..."):
+        arr = preprocess_image(image)
+        label, confidence, prob_seborrheic = predict(model, arr)
+        embedding = get_embedding(embedding_model, arr)
+        min_dist = min(cosine_distance(embedding, c) for c in centroids.values())
 
     with col2:
         if min_dist > OOD_THRESHOLD:
-            st.warning("This image doesn't resemble the lesion types this model was trained on. No prediction shown.")
+            st.markdown(
+                f"""
+                <div class="ood-card">
+                    <strong>No prediction shown</strong>
+                    <div class="result-note">
+                        This image doesn't resemble the lesion types this
+                        model was trained on (distance {min_dist:.2f} &gt;
+                        threshold {OOD_THRESHOLD}).
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         else:
             card_class = "result-actinic" if label == "Actinic Keratosis" else "result-seborrheic"
-            st.markdown(f"""<div class="result-card {card_class}">...""", unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div class="result-card {card_class}">
+                    <div class="result-label">{label}</div>
+                    <div class="confidence-text">Confidence: {confidence*100:.1f}%</div>
+                    <div class="result-note">Model output only — not a clinical diagnosis.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
             st.write("")
             st.progress(confidence)
             st.caption(f"Raw model output (P[Seborrheic Keratosis]) = {prob_seborrheic:.4f}")
+
+else:
+    st.info("Upload a lesion image to get a prediction.")
 
 st.markdown("---")
 st.caption("Built with TensorFlow + Streamlit — EfficientNetB0 transfer learning, academic project.")
