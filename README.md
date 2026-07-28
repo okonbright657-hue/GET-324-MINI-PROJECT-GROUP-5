@@ -1,10 +1,19 @@
 GET324 Mini Project
 
+
+
 # Actinic Keratosis vs Seborrheic Keratosis Classifier
 
 A Convolutional Neural Network built with TensorFlow/Keras that classifies dermoscopic skin lesion images as **Actinic Keratosis** or **Seborrheic Keratosis**, with a Streamlit web app for interactive inference.
 
 > **Data integrity notice:** The source dataset ships as 9 flat class folders (no pre-made `train/`/`validation`/`test` split). This project uses only 2 of the 9 classes and builds its own **stratified 70/15/15 split from raw files** (see notebook, split-construction step) — there is no risk of the augmented-duplicate leakage that pre-split datasets can have, because the split is generated fresh from disjoint filenames. **Note the source folder is misspelled `Acitinic Keratosis` on Kaggle** — the notebook's folder-matching logic accounts for this; don't assume the display name matches the class label everywhere.
+
+# Contributors:
+## Favour Oden - 23/EG/FE/645
+## Dorcas, Bassey Stephen - 23/EG/FE/005
+## Udofia, Utibeima Udo 23/EG/FE/035
+#  Okon Bright - 23/EG/FE/045
+## Abasiofon Joshua Elijah - 23/EG/FE/025
 
 ## Project Structure
 
