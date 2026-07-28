@@ -228,24 +228,20 @@ if uploaded_file is not None:
     with st.spinner("Analysing image..."):
         label, confidence, prob_seborrheic = predict(model, image)
 
-    with col2:
-        card_class = "result-actinic" if label == "Actinic Keratosis" else "result-seborrheic"
-        st.markdown(
-            f"""
-            <div class="result-card {card_class}">
-                <div class="result-label">{label}</div>
-                <div class="confidence-text">Confidence: {confidence*100:.1f}%</div>
-                <div class="result-note">Model output only — not a clinical diagnosis.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.write("")
-        st.progress(confidence)
-        st.caption(f"Raw model output (P[Seborrheic Keratosis]) = {prob_seborrheic:.4f}")
+    arr = preprocess_image(image)
+    embedding = get_embedding(model, arr)
+    centroids = load_centroids()
+    min_dist = min(cosine_distance(embedding, c) for c in centroids.values())
 
-else:
-    st.info("Upload a lesion image to get a prediction.")
+    with col2:
+        if min_dist > OOD_THRESHOLD:
+            st.warning("This image doesn't resemble the lesion types this model was trained on. No prediction shown.")
+        else:
+            card_class = "result-actinic" if label == "Actinic Keratosis" else "result-seborrheic"
+            st.markdown(f"""<div class="result-card {card_class}">...""", unsafe_allow_html=True)
+            st.write("")
+            st.progress(confidence)
+            st.caption(f"Raw model output (P[Seborrheic Keratosis]) = {prob_seborrheic:.4f}")
 
 st.markdown("---")
 st.caption("Built with TensorFlow + Streamlit — EfficientNetB0 transfer learning, academic project.")
