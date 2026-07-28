@@ -1,8 +1,11 @@
 """
-Fresh vs Rotten Apple Classifier — Streamlit App
-Loads the trained custom CNN (models/custom_cnn.keras) and classifies
-uploaded apple images as Fresh or Rotten.
+Actinic Keratosis vs Seborrheic Keratosis Classifier — Streamlit App
+Loads the trained EfficientNetB0 transfer-learning model
+(models/efficientnet_transfer_best.keras) and classifies uploaded
+skin lesion images.
 
+This is a student research project artifact, not a diagnostic tool.
+See the disclaimer in the UI.
 """
 
 import numpy as np
@@ -10,16 +13,19 @@ import streamlit as st
 import tensorflow as tf
 from PIL import Image
 
-# ── Config — 
-IMAGE_HEIGHT = 128
-IMAGE_WIDTH = 128
-CLASS_NAMES = ["Fresh", "Rotten"]  # index 0 / index 1 — matches training class_names
-MODEL_PATH = "models/custom_cnn_best.keras"
+# ── Config ────────────────────────────────────────────────────────────────
+IMAGE_HEIGHT = 224
+IMAGE_WIDTH = 224
+# Order matches training: tf.keras.utils.image_dataset_from_directory sorts
+# class folders alphabetically -> index 0 = Actinic, index 1 = Seborrheic.
+# Verify this against your own training run's printed `class_names` before
+# trusting it — a flipped list here silently swaps every prediction.
+CLASS_NAMES = ["Actinic Keratosis", "Seborrheic Keratosis"]
+MODEL_PATH = "models/efficientnet_transfer_best.keras"
 
 # ── Page setup ────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Apple Freshness Classifier",
-    page_icon="🍎",
+    page_title="Skin Lesion Classifier",
     layout="centered",
     initial_sidebar_state="expanded",
 )
@@ -35,27 +41,38 @@ st.markdown(
     }
 
     .main {
-        background: linear-gradient(180deg, #fbfff7 0%, #f4faf0 100%);
+        background: linear-gradient(180deg, #f7fafd 0%, #eef4f9 100%);
     }
 
     .hero {
         text-align: center;
         padding: 1.6rem 1rem 1.2rem 1rem;
-        background: linear-gradient(135deg, #2e7d32 0%, #66bb6a 100%);
+        background: linear-gradient(135deg, #1e5b8a 0%, #4a90c4 100%);
         border-radius: 18px;
-        margin-bottom: 1.6rem;
-        box-shadow: 0 8px 24px rgba(46, 125, 50, 0.25);
+        margin-bottom: 1.0rem;
+        box-shadow: 0 8px 24px rgba(30, 91, 138, 0.25);
     }
     .hero h1 {
         color: white;
         font-weight: 700;
-        font-size: 2.1rem;
+        font-size: 2.0rem;
         margin-bottom: 0.2rem;
     }
     .hero p {
-        color: #eafbe7;
+        color: #eaf3fb;
         font-size: 1.0rem;
         margin: 0;
+    }
+
+    .disclaimer {
+        background: #fff8e6;
+        border: 1px solid #e8c468;
+        border-radius: 12px;
+        padding: 0.9rem 1.1rem;
+        font-size: 0.88rem;
+        color: #6b5117;
+        margin-bottom: 1.4rem;
+        line-height: 1.4;
     }
 
     .upload-card {
@@ -74,21 +91,27 @@ st.markdown(
         margin-top: 1rem;
         box-shadow: 0 6px 20px rgba(0,0,0,0.08);
     }
-    .result-fresh {
-        background: linear-gradient(135deg, #e8f8ec 0%, #d4f2dc 100%);
-        border: 2px solid #4caf50;
-    }
-    .result-rotten {
+    .result-actinic {
         background: linear-gradient(135deg, #fdeceb 0%, #fbdbd8 100%);
         border: 2px solid #e53935;
     }
+    .result-seborrheic {
+        background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f2 100%);
+        border: 2px solid #3d8fb0;
+    }
     .result-label {
-        font-size: 1.8rem;
+        font-size: 1.7rem;
         font-weight: 700;
         margin-bottom: 0.2rem;
     }
-    .result-fresh .result-label { color: #2e7d32; }
-    .result-rotten .result-label { color: #c62828; }
+    .result-actinic .result-label { color: #c62828; }
+    .result-seborrheic .result-label { color: #21617a; }
+
+    .result-note {
+        font-size: 0.82rem;
+        color: #555;
+        margin-top: 0.4rem;
+    }
 
     .confidence-text {
         font-size: 1.0rem;
@@ -110,9 +133,11 @@ def load_model():
 
 
 def preprocess_image(pil_image: Image.Image) -> np.ndarray:
-    """Resize + array-ify. No manual rescale — the model has its own
-    Rescaling(1/255) layer baked in. Rescaling here too would silently
-    double-scale the input and wreck predictions."""
+    """Resize + array-ify. No manual normalization here — the model applies
+    tf.keras.applications.efficientnet.preprocess_input internally as a
+    layer step (see build_transfer_model in the training notebook).
+    Normalizing here too would double-preprocess and wreck predictions,
+    same failure mode as double-rescaling in the old apple app."""
     img = pil_image.convert("RGB").resize((IMAGE_WIDTH, IMAGE_HEIGHT))
     arr = tf.keras.utils.img_to_array(img)
     arr = np.expand_dims(arr, axis=0)  # (1, H, W, 3)
@@ -121,34 +146,52 @@ def preprocess_image(pil_image: Image.Image) -> np.ndarray:
 
 def predict(model, pil_image: Image.Image):
     arr = preprocess_image(pil_image)
-    prob_rotten = float(model.predict(arr, verbose=0)[0][0])  # sigmoid output
-    pred_idx = int(prob_rotten >= 0.5)
+    prob_seborrheic = float(model.predict(arr, verbose=0)[0][0])  # sigmoid output, class index 1
+    pred_idx = int(prob_seborrheic >= 0.5)
     label = CLASS_NAMES[pred_idx]
-    confidence = prob_rotten if pred_idx == 1 else 1 - prob_rotten
-    return label, confidence, prob_rotten
+    confidence = prob_seborrheic if pred_idx == 1 else 1 - prob_seborrheic
+    return label, confidence, prob_seborrheic
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 🍏 About")
+    st.markdown("### About")
     st.write(
-        "This app uses a custom Convolutional Neural Network (CNN) "
-        "trained from scratch to classify apples as **Fresh** or **Rotten** "
-        "from a single image."
+        "This app uses a transfer-learning model (EfficientNetB0 backbone) "
+        "to classify a skin lesion image as **Actinic Keratosis** or "
+        "**Seborrheic Keratosis**."
     )
     st.markdown("---")
-    st.markdown("###  Model details")
-    st.write(f"- Input size: {IMAGE_WIDTH}×{IMAGE_HEIGHT}")
-    st.write("- Architecture: 3-block custom CNN")
+    st.markdown("### Model details")
+    st.write(f"- Input size: {IMAGE_WIDTH}x{IMAGE_HEIGHT}")
+    st.write("- Architecture: EfficientNetB0 (frozen) + dense head")
     st.write("- Output: sigmoid (binary)")
     st.markdown("---")
+    st.markdown("### Class reference")
+    st.write("- **Actinic Keratosis**: precancerous lesion, warrants clinical follow-up")
+    st.write("- **Seborrheic Keratosis**: benign lesion")
 
 # ── Hero header ───────────────────────────────────────────────────────────
 st.markdown(
     """
     <div class="hero">
-        <h1>🍎 Apple Freshness Classifier</h1>
-        <p>Upload a photo of an apple and let the CNN judge its freshness</p>
+        <h1>Skin Lesion Classifier</h1>
+        <p>Upload a lesion image to classify it as Actinic or Seborrheic Keratosis</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ── Disclaimer ────────────────────────────────────────────────────────────
+st.markdown(
+    """
+    <div class="disclaimer">
+    <strong>Not a diagnostic tool.</strong> This model was trained on a small
+    academic dataset for a course project and has not been clinically
+    validated. It distinguishes only two lesion types and will produce a
+    confident-looking answer even for images of something else entirely.
+    Do not use this to make, delay, or avoid a medical decision. If you have
+    a concern about a skin lesion, see a dermatologist.
     </div>
     """,
     unsafe_allow_html=True,
@@ -157,9 +200,9 @@ st.markdown(
 # ── Upload card ───────────────────────────────────────────────────────────
 st.markdown('<div class="upload-card">', unsafe_allow_html=True)
 uploaded_file = st.file_uploader(
-    "Upload an apple image",
+    "Upload a lesion image",
     type=["jpg", "jpeg", "png"],
-    help="JPG or PNG. Best results with a clear, well-lit, single-apple photo.",
+    help="JPG or PNG. Best results with a clear, well-lit, close-up dermoscopic-style photo.",
 )
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -182,27 +225,27 @@ if uploaded_file is not None:
         )
         st.stop()
 
-    with st.spinner("Analysing apple..."):
-        label, confidence, prob_rotten = predict(model, image)
+    with st.spinner("Analysing image..."):
+        label, confidence, prob_seborrheic = predict(model, image)
 
     with col2:
-        card_class = "result-fresh" if label == "Fresh" else "result-rotten"
-        emoji = "✅" if label == "Fresh" else "⚠️"
+        card_class = "result-actinic" if label == "Actinic Keratosis" else "result-seborrheic"
         st.markdown(
             f"""
             <div class="result-card {card_class}">
-                <div class="result-label">{emoji} {label}</div>
+                <div class="result-label">{label}</div>
                 <div class="confidence-text">Confidence: {confidence*100:.1f}%</div>
+                <div class="result-note">Model output only — not a clinical diagnosis.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
         st.write("")
         st.progress(confidence)
-        st.caption(f"Raw model output (P[Rotten]) = {prob_rotten:.4f}")
+        st.caption(f"Raw model output (P[Seborrheic Keratosis]) = {prob_seborrheic:.4f}")
 
 else:
-    st.info(" Upload an apple image to get a prediction.")
+    st.info("Upload a lesion image to get a prediction.")
 
 st.markdown("---")
-st.caption("Built with TensorFlow + Streamlit · Custom CNN, trained from scratch")
+st.caption("Built with TensorFlow + Streamlit — EfficientNetB0 transfer learning, academic project.")
